@@ -55,5 +55,33 @@ copy_events_task = PythonOperator(
     python_callable=load_events_data_to_redshift,
 )
 
+
+def load_songs_data_to_redshift(*args, **kwargs):
+    aws_hook = AwsHook("aws_credentials")
+    credentials = aws_hook.get_credentials()
+    redshift_hook = PostgresHook("redshift")
+    sql = """
+        COPY {0}
+        FROM '{1}'
+        ACCESS_KEY_ID '{2}'
+        SECRET_ACCESS_KEY '{3}'
+        REGION AS '{4}'
+        FORMAT as json '{5}'
+    """.format(
+        "staging_songs",
+        "s3://udacity-dend/song_data/A/A/A",
+        credentials.access_key,
+        credentials.secret_key,
+        "us-west-2",
+        "auto",
+    )
+    redshift_hook.run(sql)
+
+
+copy_songs_task = PythonOperator(
+    task_id="create_songs_table", dag=dag, python_callable=load_songs_data_to_redshift
+)
+
 create_tables_task >> start_operator
 start_operator >> copy_events_task
+start_operator >> copy_songs_task
