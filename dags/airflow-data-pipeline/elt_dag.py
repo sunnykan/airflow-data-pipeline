@@ -49,7 +49,7 @@ def load_events_data_to_redshift(*args, **kwargs):
     redshift_hook.run(sql)
 
 
-copy_events_task = PythonOperator(
+stage_events = PythonOperator(
     task_id="create_events_table",
     dag=dag,
     python_callable=load_events_data_to_redshift,
@@ -78,10 +78,74 @@ def load_songs_data_to_redshift(*args, **kwargs):
     redshift_hook.run(sql)
 
 
-copy_songs_task = PythonOperator(
+stage_songs = PythonOperator(
     task_id="create_songs_table", dag=dag, python_callable=load_songs_data_to_redshift
 )
 
+load_songplays_fact_table = PostgresOperator(
+    task_id="load_songplays_fact_table",
+    dag=dag,
+    postgres_conn_id="redshift",
+    sql="""INSERT INTO songplays (playid, start_time, userid, level, songid, artistid, sessionid, location, user_agent)
+        SELECT
+                md5(events.sessionid || events.start_time) songplay_id,
+                events.start_time, 
+                events.userid, 
+                events.level, 
+                songs.song_id, 
+                songs.artist_id, 
+                events.sessionid, 
+                events.location, 
+                events.useragent
+                FROM (SELECT TIMESTAMP 'epoch' + ts/1000 * interval '1 second' AS start_time, *
+            FROM staging_events
+            WHERE page='NextSong') events
+            LEFT JOIN staging_songs songs
+            ON events.song = songs.title
+                AND events.artist = songs.artist_name
+                AND events.length = songs.duration
+    """,
+)
+
+# load_song_dim_table = PostgresOperator(
+#     task_id="load_song_dim_table",
+#     dag=dag,
+#     postgres_conn_id="redshift",
+#     sql=sql_queries.song_table_insert,
+# )
+
+load_user_dim_table = PostgresOperator(
+    task_id="load_user_dim_table",
+    dag=dag,
+    postgres_conn_id="redshift",
+    sql="""insert into users (userid, first_name, last_name, gender, level)
+    select distinct userId,
+                    firstName,
+                    lastName,
+                    gender,
+                    level
+    from staging_events
+    where page = 'NextSong'
+    and userId NOT IN (select distinct userid FROM users);
+    """,
+)
+
+
+# load_artist_dim_table = PostgresOperator(
+#     task_id="load_artist_dim_table",
+#     dag=dag,
+#     postgres_conn_id="redshift",
+#     sql=sql_queries.artist_table_insert,
+# )
+
+# load_time_dim_table = PostgresOperator(
+#     task_id="load_time_dim_table",
+#     dag=dag,
+#     postgres_conn_id="redshift",
+#     sql=sql_queries.time_table_insert,
+# )
+
 create_tables_task >> start_operator
-start_operator >> copy_events_task
-start_operator >> copy_songs_task
+start_operator >> [stage_events, stage_songs]
+[stage_events, stage_songs] >> load_songplays_fact_table
+load_songplays_fact_table >> load_user_dim_table
