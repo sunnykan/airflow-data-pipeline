@@ -9,9 +9,10 @@ from airflow.operators.postgres_operator import PostgresOperator
 from airflow.operators.python_operator import PythonOperator
 from airflow.operators.dummy_operator import DummyOperator
 
-from airflow.operators import HasRowsOperator, S3ToRedshiftOperator
+from airflow.operators import HasRowsOperator, S3ToRedshiftOperator, LoadFactOperator
 
-import sql_queries
+
+from helpers import SqlQueries
 
 dag = DAG(
     dag_id="populate_dwh_dag",
@@ -51,6 +52,16 @@ stage_songs = S3ToRedshiftOperator(
     s3_key="song_data/A/A/A",
     region="us-west-2",
     format="auto",
+)
+
+
+load_songplays_fact_table = LoadFactOperator(
+    task_id="load_songplays_fact_table",
+    dag=dag,
+    postgres_conn_id="redshift",
+    table="songplays",
+    table_cols="playid, start_time, userid, level, songid, artistid, sessionid, location, user_agent",
+    sql=SqlQueries.songplay_table_insert,
 )
 
 # load_songplays_fact_table = PostgresOperator(
@@ -118,5 +129,5 @@ stage_songs = S3ToRedshiftOperator(
 
 create_tables_task >> start_operator
 start_operator >> [stage_events, stage_songs]
-# [stage_events, stage_songs] >> load_songplays_fact_table
+[stage_events, stage_songs] >> load_songplays_fact_table
 # load_songplays_fact_table >> load_user_dim_table
