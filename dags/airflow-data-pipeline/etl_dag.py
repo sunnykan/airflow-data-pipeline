@@ -59,15 +59,14 @@ stage_songs = S3ToRedshiftOperator(
     format="auto",
 )
 
-
-# load_songplays_fact_table = LoadFactOperator(
-#     task_id="load_songplays_fact_table",
-#     dag=dag,
-#     postgres_conn_id="redshift",
-#     table="songplays",
-#     table_cols="playid, start_time, userid, level, songid, artistid, sessionid, location, user_agent",
-#     sql=SqlQueries.songplay_table_insert,
-# )
+load_songplays_fact_table = LoadFactOperator(
+    task_id="load_songplays_fact_table",
+    dag=dag,
+    postgres_conn_id="redshift",
+    table="songplays",
+    table_cols="playid, start_time, userid, level, songid, artistid, sessionid, location, user_agent",
+    sql=SqlQueries.songplay_table_insert,
+)
 
 load_user_dim_table = LoadDimensionOperator(
     task_id="load_user_dim_table",
@@ -78,42 +77,41 @@ load_user_dim_table = LoadDimensionOperator(
     sql=SqlQueries.user_table_insert,
 )
 
-# load_songs_dim_table = LoadDimensionOperator(
-#     task_id="load_songs_dim_table",
-#     dag=dag,
-#     postgres_conn_id="redshift",
-#     table="songs",
-#     table_cols="songid, title, artistid, 'year', duration",
-#     sql=SqlQueries.song_table_insert,
-# )
+load_songs_dim_table = LoadDimensionOperator(
+    task_id="load_songs_dim_table",
+    dag=dag,
+    postgres_conn_id="redshift",
+    table="songs",
+    table_cols='songid, title, artistid, "year", duration',
+    sql=SqlQueries.song_table_insert,
+)
 
-# load_artists_dim_table = LoadDimensionOperator(
-#     task_id="load_artists_dim_table",
-#     dag=dag,
-#     postgres_conn_id="redshift",
-#     table="artists",
-#     table_cols="artistid, name, location, latitude, longitude",
-#     sql=SqlQueries.artist_table_insert,
-# )
+load_artists_dim_table = LoadDimensionOperator(
+    task_id="load_artists_dim_table",
+    dag=dag,
+    postgres_conn_id="redshift",
+    table="artists",
+    table_cols="artistid, name, location, latitude, longitude",
+    sql=SqlQueries.artist_table_insert,
+)
 
-# load_time_dim_table = LoadDimensionOperator(
-#     task_id="load_time_dim_table",
-#     dag=dag,
-#     postgres_conn_id="redshift",
-#     table='"time"',
-#     table_cols='start_time, "hour", "day", week, "month", "year", weekday',
-#     sql=SqlQueries.time_table_insert,
-# )
+load_time_dim_table = LoadDimensionOperator(
+    task_id="load_time_dim_table",
+    dag=dag,
+    postgres_conn_id="redshift",
+    table='"time"',
+    table_cols='start_time, "hour", "day", week, "month", "year", weekday',
+    sql=SqlQueries.time_table_insert,
+)
 
 
 create_tables_task >> start_operator
 start_operator >> [stage_events, stage_songs]
-# [stage_events, stage_songs] >> load_songplays_fact_table
-# load_songplays_fact_table >> [
-#     load_user_dim_table,
-#     load_songs_dim_table,
-#     load_artists_dim_table,
-#     load_time_dim_table,
-# ]
+[stage_events, stage_songs] >> load_songplays_fact_table
+load_songplays_fact_table >> [
+    load_user_dim_table,
+    load_songs_dim_table,
+    load_artists_dim_table,
+    load_time_dim_table,
+]
 
-[stage_events, stage_songs] >> load_user_dim_table
