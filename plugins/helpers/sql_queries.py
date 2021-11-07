@@ -1,5 +1,5 @@
 class SqlQueries:
-    songplay_table_insert = """
+    songplays_table_insert = """
         SELECT
                 md5(events.sessionid || events.start_time) songplay_id,
                 events.start_time, 
@@ -19,18 +19,18 @@ class SqlQueries:
                 AND events.length = songs.duration
     """
 
-    user_table_insert = """
+    users_table_insert = """
         SELECT distinct userid, firstname, lastname, gender, level
         FROM staging_events
         WHERE page='NextSong'
     """
 
-    song_table_insert = """
+    songs_table_insert = """
         SELECT distinct song_id, title, artist_id, year, duration
         FROM staging_songs
     """
 
-    artist_table_insert = """
+    artists_table_insert = """
         SELECT distinct artist_id, artist_name, artist_location, artist_latitude, artist_longitude
         FROM staging_songs
     """
@@ -40,4 +40,4 @@ class SqlQueries:
                extract(month from start_time), extract(year from start_time), extract(dayofweek from start_time)
         FROM songplays
     """
-
+    

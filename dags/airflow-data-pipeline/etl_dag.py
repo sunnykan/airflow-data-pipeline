@@ -9,13 +9,13 @@ from airflow.operators.postgres_operator import PostgresOperator
 from airflow.operators.python_operator import PythonOperator
 from airflow.operators.dummy_operator import DummyOperator
 
-from airflow.operators import (
-    HasRowsOperator,
+from operators import (
     S3ToRedshiftOperator,
     LoadFactOperator,
+    LoadDimensionOperator,
+    DataQualityOperator,
 )
 
-from operators import LoadDimensionOperator
 
 from helpers import SqlQueries
 
@@ -65,7 +65,7 @@ load_songplays_fact_table = LoadFactOperator(
     postgres_conn_id="redshift",
     table="songplays",
     table_cols="playid, start_time, userid, level, songid, artistid, sessionid, location, user_agent",
-    sql=SqlQueries.songplay_table_insert,
+    sql=SqlQueries.songplays_table_insert,
 )
 
 load_user_dim_table = LoadDimensionOperator(
@@ -74,7 +74,17 @@ load_user_dim_table = LoadDimensionOperator(
     postgres_conn_id="redshift",
     table="users",
     table_cols="userid, first_name, last_name, gender, level",
-    sql=SqlQueries.user_table_insert,
+    sql=SqlQueries.users_table_insert,
+)
+
+run_data_quality_check = DataQualityOperator(
+    task_id="run_data_quality_check",
+    dag=dag,
+    redshift_conn_id="redshift",
+    tables=["songs", "users", "artists", "time"],
+    cols_check=["songid", "userid", "artistid", "start_time"],
+    expected_values=[0, 0, 0, 0],
+    sql="SELECT COUNT(*) FROM {} WHERE {} IS NULL",
 )
 
 load_songs_dim_table = LoadDimensionOperator(
@@ -83,7 +93,7 @@ load_songs_dim_table = LoadDimensionOperator(
     postgres_conn_id="redshift",
     table="songs",
     table_cols='songid, title, artistid, "year", duration',
-    sql=SqlQueries.song_table_insert,
+    sql=SqlQueries.songs_table_insert,
 )
 
 load_artists_dim_table = LoadDimensionOperator(
@@ -92,7 +102,7 @@ load_artists_dim_table = LoadDimensionOperator(
     postgres_conn_id="redshift",
     table="artists",
     table_cols="artistid, name, location, latitude, longitude",
-    sql=SqlQueries.artist_table_insert,
+    sql=SqlQueries.artists_table_insert,
 )
 
 load_time_dim_table = LoadDimensionOperator(
@@ -105,8 +115,8 @@ load_time_dim_table = LoadDimensionOperator(
 )
 
 
-create_tables_task >> start_operator
-start_operator >> [stage_events, stage_songs]
+start_operator >> create_tables_task
+create_tables_task >> [stage_events, stage_songs]
 [stage_events, stage_songs] >> load_songplays_fact_table
 load_songplays_fact_table >> [
     load_user_dim_table,
@@ -114,4 +124,11 @@ load_songplays_fact_table >> [
     load_artists_dim_table,
     load_time_dim_table,
 ]
+
+[
+    load_user_dim_table,
+    load_songs_dim_table,
+    load_artists_dim_table,
+    load_time_dim_table,
+] >> run_data_quality_check
 
