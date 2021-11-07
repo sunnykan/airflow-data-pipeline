@@ -9,8 +9,13 @@ from airflow.operators.postgres_operator import PostgresOperator
 from airflow.operators.python_operator import PythonOperator
 from airflow.operators.dummy_operator import DummyOperator
 
-from airflow.operators import HasRowsOperator, S3ToRedshiftOperator, LoadFactOperator
+from airflow.operators import (
+    HasRowsOperator,
+    S3ToRedshiftOperator,
+    LoadFactOperator,
+)
 
+from operators import LoadDimensionOperator
 
 from helpers import SqlQueries
 
@@ -55,79 +60,60 @@ stage_songs = S3ToRedshiftOperator(
 )
 
 
-load_songplays_fact_table = LoadFactOperator(
-    task_id="load_songplays_fact_table",
-    dag=dag,
-    postgres_conn_id="redshift",
-    table="songplays",
-    table_cols="playid, start_time, userid, level, songid, artistid, sessionid, location, user_agent",
-    sql=SqlQueries.songplay_table_insert,
-)
-
-# load_songplays_fact_table = PostgresOperator(
+# load_songplays_fact_table = LoadFactOperator(
 #     task_id="load_songplays_fact_table",
 #     dag=dag,
 #     postgres_conn_id="redshift",
-#     sql="""INSERT INTO songplays (playid, start_time, userid, level, songid, artistid, sessionid, location, user_agent)
-#         SELECT
-#                 md5(events.sessionid || events.start_time) songplay_id,
-#                 events.start_time,
-#                 events.userid,
-#                 events.level,
-#                 songs.song_id,
-#                 songs.artist_id,
-#                 events.sessionid,
-#                 events.location,
-#                 events.useragent
-#                 FROM (SELECT TIMESTAMP 'epoch' + ts/1000 * interval '1 second' AS start_time, *
-#             FROM staging_events
-#             WHERE page='NextSong') events
-#             LEFT JOIN staging_songs songs
-#             ON events.song = songs.title
-#                 AND events.artist = songs.artist_name
-#                 AND events.length = songs.duration
-#     """,
+#     table="songplays",
+#     table_cols="playid, start_time, userid, level, songid, artistid, sessionid, location, user_agent",
+#     sql=SqlQueries.songplay_table_insert,
 # )
 
-# load_song_dim_table = PostgresOperator(
-#     task_id="load_song_dim_table",
+load_user_dim_table = LoadDimensionOperator(
+    task_id="load_user_dim_table",
+    dag=dag,
+    postgres_conn_id="redshift",
+    table="users",
+    table_cols="userid, first_name, last_name, gender, level",
+    sql=SqlQueries.user_table_insert,
+)
+
+# load_songs_dim_table = LoadDimensionOperator(
+#     task_id="load_songs_dim_table",
 #     dag=dag,
 #     postgres_conn_id="redshift",
-#     sql=sql_queries.song_table_insert,
+#     table="songs",
+#     table_cols="songid, title, artistid, 'year', duration",
+#     sql=SqlQueries.song_table_insert,
 # )
 
-# load_user_dim_table = PostgresOperator(
-#     task_id="load_user_dim_table",
+# load_artists_dim_table = LoadDimensionOperator(
+#     task_id="load_artists_dim_table",
 #     dag=dag,
 #     postgres_conn_id="redshift",
-#     sql="""insert into users (userid, first_name, last_name, gender, level)
-#     select distinct userId,
-#                     firstName,
-#                     lastName,
-#                     gender,
-#                     level
-#     from staging_events
-#     where page = 'NextSong'
-#     and userId NOT IN (select distinct userid FROM users);
-#     """,
+#     table="artists",
+#     table_cols="artistid, name, location, latitude, longitude",
+#     sql=SqlQueries.artist_table_insert,
 # )
 
-
-# load_artist_dim_table = PostgresOperator(
-#     task_id="load_artist_dim_table",
-#     dag=dag,
-#     postgres_conn_id="redshift",
-#     sql=sql_queries.artist_table_insert,
-# )
-
-# load_time_dim_table = PostgresOperator(
+# load_time_dim_table = LoadDimensionOperator(
 #     task_id="load_time_dim_table",
 #     dag=dag,
 #     postgres_conn_id="redshift",
-#     sql=sql_queries.time_table_insert,
+#     table='"time"',
+#     table_cols='start_time, "hour", "day", week, "month", "year", weekday',
+#     sql=SqlQueries.time_table_insert,
 # )
+
 
 create_tables_task >> start_operator
 start_operator >> [stage_events, stage_songs]
-[stage_events, stage_songs] >> load_songplays_fact_table
-# load_songplays_fact_table >> load_user_dim_table
+# [stage_events, stage_songs] >> load_songplays_fact_table
+# load_songplays_fact_table >> [
+#     load_user_dim_table,
+#     load_songs_dim_table,
+#     load_artists_dim_table,
+#     load_time_dim_table,
+# ]
+
+[stage_events, stage_songs] >> load_user_dim_table
