@@ -6,13 +6,20 @@ from airflow.utils.decorators import apply_defaults
 
 class S3ToRedshiftOperator(BaseOperator):
     template_fields = ("s3_key",)
+    # copy_sql = """
+    #     COPY {}
+    #     FROM '{}'
+    #     ACCESS_KEY_ID '{}'
+    #     SECRET_ACCESS_KEY '{}'
+    #     REGION AS '{}'
+    #     FORMAT AS json '{}'
+    # """
     copy_sql = """
         COPY {}
         FROM '{}'
         ACCESS_KEY_ID '{}'
         SECRET_ACCESS_KEY '{}'
         REGION AS '{}'
-        FORMAT AS json '{}'
     """
 
     @apply_defaults
@@ -24,9 +31,10 @@ class S3ToRedshiftOperator(BaseOperator):
         s3_bucket="",
         s3_key="",
         region="",
-        format="auto",
+        filetype_params={"filetype": "json", "format": "auto"},
+        # format="auto",
         *args,
-        **kwargs
+        **kwargs,
     ):
 
         super(S3ToRedshiftOperator, self).__init__(*args, **kwargs)
@@ -36,7 +44,8 @@ class S3ToRedshiftOperator(BaseOperator):
         self.s3_key = s3_key
         self.aws_credentials_id = aws_credentials_id
         self.region = region
-        self.format = format
+        self.filetype_params = filetype_params
+        # self.format = format
 
     def execute(self, context):
         aws_hook = AwsHook(self.aws_credentials_id)
@@ -48,14 +57,25 @@ class S3ToRedshiftOperator(BaseOperator):
 
         self.log.info("Copying data from S3 to Redshift")
         rendered_key = self.s3_key.format(**context)
+        print(rendered_key)
+
         s3_path = "s3://{}/{}".format(self.s3_bucket, rendered_key)
-        formatted_sql = S3ToRedshiftOperator.copy_sql.format(
+
+        self.log.info(f"Loading staging table: {self.table}")
+        base_sql = S3ToRedshiftOperator.copy_sql.format(
             self.table,
             s3_path,
             credentials.access_key,
             credentials.secret_key,
             self.region,
-            self.format,
         )
-        redshift.run(formatted_sql)
 
+        if self.filetype_params["filetype"].lower() == "json":
+            formatted_sql = base_sql + "FORMAT AS json'{}'".format(
+                self.filetype_params["format"]
+            )
+        elif self.filetype_params["filetype"].lower() == "csv":
+            formatted_sql = base_sql + "IGNOREHEADER {} DELIMITER '{}'".format(
+                self.filetype_params["ignoreheader"], self.filetype_params["delimiter"]
+            )
+        redshift.run(formatted_sql)

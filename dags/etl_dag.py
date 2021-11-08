@@ -16,16 +16,32 @@ from operators import (
     DataQualityOperator,
 )
 
-
 from helpers import SqlQueries
 
+# DAG
+default_args = {
+    "owner": "sparkify",
+    "start_date": datetime.datetime(2018, 11, 1),
+    "depends_on_past": False,
+    "retries": 3,
+    "retry_delay": datetime.timedelta(minutes=5),
+    "catchup": False,
+    "email_on_retry": False,
+}
+
 dag = DAG(
-    dag_id="populate_dwh_dag",
-    start_date=datetime.datetime(2021, 11, 4, 0, 0, 0, 0),
-    schedule_interval=None,
+    "sparkify_dag",
+    default_args=default_args,
+    description="Load data from S3 into Redshift and transform it with Airflow",
+    schedule_interval="0 * * * *",
+    catchup=True,
     max_active_runs=1,
 )
 
+start_operator = DummyOperator(task_id="Begin_execution", dag=dag)
+end_operator = DummyOperator(task_id="End_execution", dag=dag)
+
+# Create tables
 create_tables_task = PostgresOperator(
     task_id="create_tables_task",
     dag=dag,
@@ -33,8 +49,7 @@ create_tables_task = PostgresOperator(
     sql="sql/create_tables.sql",
 )
 
-start_operator = DummyOperator(task_id="Begin_execution", dag=dag)
-
+# Load staging tables
 stage_events = S3ToRedshiftOperator(
     task_id="load_events_from_s3_to_redshift",
     dag=dag,
@@ -42,9 +57,12 @@ stage_events = S3ToRedshiftOperator(
     aws_credentials_id="aws-credentials",
     table="staging_events",
     s3_bucket="udacity-dend",
-    s3_key="log_data",
+    s3_key="log_data/{execution_date.year}/{execution_date.month}",
     region="us-west-2",
-    format="s3://udacity-dend/log_json_path.json",
+    filetype_params={
+        "filetype": "json",
+        "format": "s3://udacity-dend/log_json_path.json",
+    },
 )
 
 stage_songs = S3ToRedshiftOperator(
@@ -56,9 +74,10 @@ stage_songs = S3ToRedshiftOperator(
     s3_bucket="udacity-dend",
     s3_key="song_data/A/A/A",
     region="us-west-2",
-    format="auto",
+    filetype_params={"filetype": "json", "format": "auto"},
 )
 
+# Load fact table
 load_songplays_fact_table = LoadFactOperator(
     task_id="load_songplays_fact_table",
     dag=dag,
@@ -66,25 +85,18 @@ load_songplays_fact_table = LoadFactOperator(
     table="songplays",
     table_cols="playid, start_time, userid, level, songid, artistid, sessionid, location, user_agent",
     sql=SqlQueries.songplays_table_insert,
+    truncate=False,
 )
 
-load_user_dim_table = LoadDimensionOperator(
-    task_id="load_user_dim_table",
+# Load dimension tables
+load_users_dim_table = LoadDimensionOperator(
+    task_id="load_users_dim_table",
     dag=dag,
     postgres_conn_id="redshift",
     table="users",
     table_cols="userid, first_name, last_name, gender, level",
     sql=SqlQueries.users_table_insert,
-)
-
-run_data_quality_check = DataQualityOperator(
-    task_id="run_data_quality_check",
-    dag=dag,
-    redshift_conn_id="redshift",
-    tables=["songs", "users", "artists", "time"],
-    cols_check=["songid", "userid", "artistid", "start_time"],
-    expected_values=[0, 0, 0, 0],
-    sql="SELECT COUNT(*) FROM {} WHERE {} IS NULL",
+    truncate=True,
 )
 
 load_songs_dim_table = LoadDimensionOperator(
@@ -94,6 +106,7 @@ load_songs_dim_table = LoadDimensionOperator(
     table="songs",
     table_cols='songid, title, artistid, "year", duration',
     sql=SqlQueries.songs_table_insert,
+    truncate=True,
 )
 
 load_artists_dim_table = LoadDimensionOperator(
@@ -103,6 +116,7 @@ load_artists_dim_table = LoadDimensionOperator(
     table="artists",
     table_cols="artistid, name, location, latitude, longitude",
     sql=SqlQueries.artists_table_insert,
+    truncate=True,
 )
 
 load_time_dim_table = LoadDimensionOperator(
@@ -112,23 +126,39 @@ load_time_dim_table = LoadDimensionOperator(
     table='"time"',
     table_cols='start_time, "hour", "day", week, "month", "year", weekday',
     sql=SqlQueries.time_table_insert,
+    truncate=True,
 )
 
+# Data quality check
+run_data_quality_check = DataQualityOperator(
+    task_id="run_data_quality_check",
+    dag=dag,
+    redshift_conn_id="redshift",
+    tables=["songs", "artists", "users", "time"],
+    cols_check=["songid", "artistid", "userid", "start_time"],
+    expected_values=[0, 0, 0, 0],
+    sql="SELECT COUNT(*) FROM {} WHERE {} IS NULL",
+)
 
+# Task ordering
 start_operator >> create_tables_task
+
 create_tables_task >> [stage_events, stage_songs]
+
 [stage_events, stage_songs] >> load_songplays_fact_table
+
 load_songplays_fact_table >> [
-    load_user_dim_table,
+    load_users_dim_table,
     load_songs_dim_table,
     load_artists_dim_table,
     load_time_dim_table,
 ]
 
 [
-    load_user_dim_table,
+    load_users_dim_table,
     load_songs_dim_table,
     load_artists_dim_table,
     load_time_dim_table,
 ] >> run_data_quality_check
 
+run_data_quality_check >> end_operator
