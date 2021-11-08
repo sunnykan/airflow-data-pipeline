@@ -6,14 +6,6 @@ from airflow.utils.decorators import apply_defaults
 
 class S3ToRedshiftOperator(BaseOperator):
     template_fields = ("s3_key",)
-    # copy_sql = """
-    #     COPY {}
-    #     FROM '{}'
-    #     ACCESS_KEY_ID '{}'
-    #     SECRET_ACCESS_KEY '{}'
-    #     REGION AS '{}'
-    #     FORMAT AS json '{}'
-    # """
     copy_sql = """
         COPY {}
         FROM '{}'

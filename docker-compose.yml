@@ -16,7 +16,7 @@ services:
             dockerfile: Dockerfile
             args:
                 AIRFLOW_DEPS: s3
-                PYTHON_DEPS: botocore boto3 sqlalchemy==1.3.0
+                PYTHON_DEPS: botocore boto3 sqlalchemy==1.3.0 wtforms==2.2
         restart: always
         depends_on:
             - postgres
