@@ -1,0 +1,1 @@
+Folder contains code for Airflow version 2.2.1. To use these files copy them into a separate folder and build the images using a doker compose file. Alternatively, use the Astronomer CLI. See https://www.astronomer.io/guides/get-started-airflow-2 for details.
